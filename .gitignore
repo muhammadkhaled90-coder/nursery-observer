@@ -1,0 +1,52 @@
+# Safety net for G5 / G7: never commit child video, frames, clips, metrics or identity data.
+
+# Video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.m4v
+*.webm
+*.mpg
+*.mpeg
+*.h264
+*.h265
+
+# Local data folders (raw video, frames, clips, outputs, generated reports)
+data/
+videos/
+frames/
+clips/
+outputs/
+reports_out/
+
+# Databases (metrics, keypoints)
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.npy
+*.npz
+
+# Code-to-name mapping (must never be committed)
+*names_map*
+*child_names*
+identity_map*
+
+# Model weights (downloaded once at setup, not committed)
+models/
+*.onnx
+*.pt
+*.pth
+*.tflite
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets / local config
+.env
+.env.*
