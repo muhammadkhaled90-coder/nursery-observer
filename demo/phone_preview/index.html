@@ -195,6 +195,7 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
       <dt>عدد الأرقام اللي اتدّت</dt><dd id="sIds">–</dd>
     </dl>
     <p class="callout">لو عدد الأرقام أكبر من عدد الناس اللي كانوا في الفيديو فعلاً، يبقى فيه حد رقمه اتغيّر (غالباً لما حد عدّى قدامه). ده بالظبط اللي هنقيسه ونحسّنه في المرحلة M2.</p>
+    <p class="note" id="sOrient" hidden>الفيديو ده متصوّر بالطول. المرة الجاية صوّر بالعرض عشان يبقى شبه كاميرا الفصل، وتبان مساحة أكبر من المكان.</p>
     <div class="actions">
       <button class="btn" id="btnCopy" type="button">انسخ النتيجة</button>
     </div>
@@ -562,7 +563,7 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
     for (let j = 0; j < dets.length; j++) {
       if (usedD.has(j)) continue;
       const h = hipOf(dets[j].kps);
-      tracks.push({ id: 0, hits: 1, box: dets[j].box, v: { x: 0, y: 0 }, kps: dets[j].kps, lastT: t,
+      tracks.push({ id: 0, hits: 1, bornT: t, box: dets[j].box, v: { x: 0, y: 0 }, kps: dets[j].kps, lastT: t,
         hip: h, hipT: h ? t : null, seenT: 0, moveSum: 0, moveT: 0, color: '#9AA5A1' });
     }
     T.tracks = tracks.filter((tr) => (t - tr.lastT) <= (tr.id ? MAX_GAP_S : TENTATIVE_GAP_S) && t >= tr.lastT);
@@ -648,13 +649,14 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
 
   function analysedSeconds() { return S.firstT === null ? 0 : Math.max(0, S.lastT - S.firstT); }
 
-  function rows() {
+  function rows(all) {
     const dur = analysedSeconds();
     return T.numbered.map((tr) => ({
       id: tr.id, color: tr.color, seen: tr.seenT,
+      from: tr.bornT - S.firstT, to: tr.lastT - S.firstT,
       pct: dur > 0 ? Math.min(100, (tr.seenT / dur) * 100) : 0,
       move: tr.moveT >= 1 ? tr.moveSum / tr.moveT : null,
-    })).filter((r) => r.seen >= 0.5);
+    })).filter((r) => all || r.seen >= 0.5);
   }
 
   function renderTable(empty) {
@@ -703,6 +705,7 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
     $('sMax').textContent = String(S.maxSimul);
     $('sIds').textContent = String(T.nextId - 1);
     $('summary').hidden = false;
+    $('sOrient').hidden = !(video.videoHeight > video.videoWidth);
     $('copyNote').textContent = '';
     updateButtons();
   }
@@ -719,8 +722,8 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
       'أكبر عدد ظهر مع بعض: ' + S.maxSimul,
       'عدد الأرقام اللي اتدّت: ' + (T.nextId - 1),
     ];
-    for (const r of rows()) {
-      lines.push('#' + r.id + ': ظاهر ' + r.seen.toFixed(0) + ' ث (' + r.pct.toFixed(0) + '%)، متوسط الحركة ' + (r.move === null ? '–' : r.move.toFixed(2)));
+    for (const r of rows(true)) {
+      lines.push('#' + r.id + ' (من ' + r.from.toFixed(1) + ' لـ ' + r.to.toFixed(1) + ' ث): ظاهر ' + r.seen.toFixed(0) + ' ث (' + r.pct.toFixed(0) + '%)، متوسط الحركة ' + (r.move === null ? '–' : r.move.toFixed(2)));
     }
     lines.push('المتصفح: ' + navigator.userAgent);
     return lines.join('\n');
