@@ -7,6 +7,8 @@ Each significant choice, the alternatives considered, and why. Newest last.
 - **Alternatives:** separate private repo `nursery-observer` (preferred, approved by Mohamed).
 - **Why:** this cloud session can only reach the website repo and cannot create repositories.
   Move everything (with history) to the private repo as soon as it exists.
+- **Update (same day):** moved to the private repo `nursery-observer` with full history
+  (`git subtree split`); the folder was removed from the website branch.
 
 ## 2026-11-11 — Phone preview before the laptop is available
 - **Chosen:** a browser page (private claude.ai artifact) that analyses a recorded clip on the phone,
