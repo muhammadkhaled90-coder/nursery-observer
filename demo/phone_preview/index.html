@@ -1,0 +1,805 @@
+<title>معاينة تتبع الحركة</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+Arabic:wght@400;500;700&display=swap">
+<style>
+/* Layout: one narrow RTL column (setup tips -> video stage with live readouts -> per-person table -> what to send back). */
+:root {
+  --bg: #F2F5F4;
+  --surface: #FFFFFF;
+  --fg: #12201C;
+  --muted: #56665F;
+  --line: #D5DFDB;
+  --accent: #0D6A60;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #DCEEEA;
+  --warn: #8A5300;
+  --warn-soft: #FBEBD3;
+  --bad: #A3271F;
+  --stage: #0A110F;
+  --stage-fg: #C9D6D2;
+  --font-ui: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0C1311; --surface: #131C19; --fg: #E1EAE7; --muted: #92A39D; --line: #25322E;
+    --accent: #3DB3A4; --accent-ink: #052019; --accent-soft: #15302B;
+    --warn: #E5A445; --warn-soft: #2E2312; --bad: #F07A70;
+    --stage: #050908; --stage-fg: #A9B8B3;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0C1311; --surface: #131C19; --fg: #E1EAE7; --muted: #92A39D; --line: #25322E;
+  --accent: #3DB3A4; --accent-ink: #052019; --accent-soft: #15302B;
+  --warn: #E5A445; --warn-soft: #2E2312; --bad: #F07A70;
+  --stage: #050908; --stage-fg: #A9B8B3;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 16px; line-height: 1.65; direction: rtl; }
+.wrap {
+  max-width: 720px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+  display: grid; gap: 22px;
+}
+.wrap > * { min-width: 0; }
+h1, h2 { text-wrap: balance; line-height: 1.3; margin: 0; }
+h1 { font-size: 1.6rem; font-weight: 700; }
+h2 { font-size: 1.1rem; font-weight: 700; }
+p { margin: 0; }
+.eyebrow { font-family: var(--font-num); font-size: 0.75rem; letter-spacing: 0.06em; color: var(--muted); direction: ltr; text-align: right; }
+header { display: grid; gap: 8px; }
+.lede { color: var(--fg); max-width: 60ch; }
+.privacy { display: flex; gap: 10px; align-items: flex-start; background: var(--accent-soft); border-radius: var(--radius); padding: 10px 12px; font-size: 0.92rem; }
+.privacy svg { flex: none; margin-top: 4px; }
+
+.tips { display: grid; gap: 8px; }
+.tips ul { margin: 0; padding-inline-start: 1.2em; display: grid; gap: 4px; color: var(--fg); }
+.tips li::marker { color: var(--accent); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn {
+  font: inherit; font-weight: 500; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  border-radius: var(--radius); padding: 10px 16px; min-height: 46px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.status { font-size: 0.9rem; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.status[data-kind="loading"]::before { background: var(--warn); }
+.status[data-kind="ready"]::before { background: var(--accent); }
+.status[data-kind="error"] { color: var(--bad); }
+.status[data-kind="error"]::before { background: var(--bad); }
+
+.stage-wrap { display: grid; gap: 10px; }
+.stage {
+  background: var(--stage); color: var(--stage-fg); border-radius: var(--radius);
+  aspect-ratio: 16 / 9; max-width: 100%; display: grid; place-items: center; overflow: hidden; position: relative;
+}
+.stage canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+.stage .empty { padding: 16px; text-align: center; font-size: 0.95rem; max-width: 34ch; }
+.offscreen { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; left: 0; top: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.controls .btn { padding: 8px 14px; min-height: 42px; }
+
+.readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.readout { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 2px; }
+.readout .k { font-size: 0.78rem; color: var(--muted); }
+.readout .v { font-family: var(--font-num); font-size: 1.3rem; font-variant-numeric: tabular-nums; direction: ltr; text-align: right; }
+.readout .u { font-size: 0.75rem; color: var(--muted); }
+
+.people { display: grid; gap: 8px; }
+.table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 500; color: var(--muted); font-size: 0.8rem; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-num); }
+.chip i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.bar { height: 8px; background: var(--accent-soft); border-radius: 4px; min-width: 70px; position: relative; overflow: hidden; }
+.bar > span { position: absolute; inset-block: 0; right: 0; background: var(--accent); border-radius: 4px; }
+.note { font-size: 0.85rem; color: var(--muted); }
+.empty-row td { color: var(--muted); text-align: center; white-space: normal; }
+
+.summary { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; }
+.summary dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+.summary dt { color: var(--muted); }
+.summary dd { margin: 0; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.callout { background: var(--warn-soft); border-radius: var(--radius); padding: 10px 12px; font-size: 0.92rem; }
+
+.send { display: grid; gap: 8px; }
+.send ol { margin: 0; padding-inline-start: 1.3em; display: grid; gap: 4px; }
+footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 4px; }
+.ltr { direction: ltr; unicode-bidi: isolate; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap" lang="ar" dir="rtl">
+  <header>
+    <p class="eyebrow">nursery-observer · M0 · phone preview</p>
+    <h1>معاينة تتبع الحركة</h1>
+    <p class="lede">صوّر تمرين فيه من 2 لـ6 أشخاص كبار. الصفحة هترسم هيكل كل واحد، وتدّيله رقم ثابت، وتحسب اتحرك قد إيه.</p>
+    <div class="privacy">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <p>الفيديو مش بيترفع على أي سيرفر. التحليل كله بيحصل على الموبايل نفسه. أول مرة بس الصفحة بتنزّل الموديل (حوالي 10 ميجا).</p>
+    </div>
+  </header>
+
+  <section class="tips" aria-labelledby="tips-h">
+    <h2 id="tips-h">قبل ما تصوّر</h2>
+    <ul>
+      <li>حط الموبايل <strong>ثابت</strong> (على حامل أو مسنود على حاجة) و<strong>بالعرض</strong>.</li>
+      <li>خلّي كل واحد باين من راسه لرجليه.</li>
+      <li>من 2 لـ6 أشخاص (ده أقصى عدد للموديل ده). خليهم يعدّوا قدام بعض كام مرة.</li>
+      <li>من 30 ثانية لدقيقتين كفاية.</li>
+    </ul>
+  </section>
+
+  <section class="actions" aria-label="اختيار الفيديو">
+    <button class="btn primary" id="btnRecord" type="button">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="1.5" y="4.5" width="10.5" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8l4.5-2.5v7L12 10z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      صوّر فيديو دلوقتي
+    </button>
+    <button class="btn" id="btnPick" type="button">اختار فيديو من الموبايل</button>
+    <input type="file" id="inRecord" accept="video/*" capture="environment" hidden>
+    <input type="file" id="inPick" accept="video/*" hidden>
+  </section>
+  <p class="status" id="modelStatus" data-kind="loading" role="status">بيحمّل مكتبة التحليل…</p>
+
+  <section class="stage-wrap" aria-label="الفيديو والتحليل">
+    <div class="stage" id="stage">
+      <p class="empty" id="stageEmpty">صوّر أو اختار فيديو، وبعدين دوس «ابدأ التحليل». هتشوف الهياكل والأرقام هنا.</p>
+      <canvas id="canvas" hidden></canvas>
+    </div>
+    <div class="controls">
+      <button class="btn primary" id="btnStart" type="button" disabled>ابدأ التحليل</button>
+      <button class="btn" id="btnPause" type="button" disabled>إيقاف مؤقت</button>
+      <button class="btn" id="btnSpeed" type="button" aria-pressed="false">سرعة الفيديو: عادية</button>
+      <button class="btn" id="btnSave" type="button" hidden>احفظ الفيديو بالهياكل</button>
+    </div>
+    <p class="note" id="stageNote">لو التحليل بطيء والهياكل بتقطّع، دوس «سرعة الفيديو» وخليها «نص السرعة».</p>
+    <div class="readouts">
+      <div class="readout"><span class="k">سرعة التحليل</span><span class="v" id="rFps">–</span><span class="u">إطار في الثانية</span></div>
+      <div class="readout"><span class="k">في الصورة دلوقتي</span><span class="v" id="rNow">–</span><span class="u">شخص</span></div>
+      <div class="readout"><span class="k">أرقام اتدّت</span><span class="v" id="rIds">–</span><span class="u">رقم</span></div>
+    </div>
+  </section>
+
+  <section class="people" aria-labelledby="people-h">
+    <h2 id="people-h">كل شخص</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>الرقم</th><th>ظاهر</th><th>من الفيديو</th><th>متوسط الحركة</th><th></th></tr></thead>
+        <tbody id="peopleBody"><tr class="empty-row"><td colspan="5">لسه مفيش تحليل. الجدول هيتملا وانت بتحلل.</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note">«متوسط الحركة» = سرعة منتصف الوسط، مقسومة على طول الشخص في الصورة، في الثانية. ده رقم تجريبي، الهدف منه نشوف هل الترتيب منطقي (اللي بيجري أعلى من اللي واقف).</p>
+  </section>
+
+  <section class="summary" id="summary" hidden aria-labelledby="sum-h">
+    <h2 id="sum-h">النتيجة</h2>
+    <dl>
+      <dt>مدة الفيديو اللي اتحللت</dt><dd id="sDur">–</dd>
+      <dt>متوسط سرعة التحليل</dt><dd id="sFps">–</dd>
+      <dt>أكبر عدد ظهر مع بعض</dt><dd id="sMax">–</dd>
+      <dt>عدد الأرقام اللي اتدّت</dt><dd id="sIds">–</dd>
+    </dl>
+    <p class="callout">لو عدد الأرقام أكبر من عدد الناس اللي كانوا في الفيديو فعلاً، يبقى فيه حد رقمه اتغيّر (غالباً لما حد عدّى قدامه). ده بالظبط اللي هنقيسه ونحسّنه في المرحلة M2.</p>
+    <div class="actions">
+      <button class="btn" id="btnCopy" type="button">انسخ النتيجة</button>
+    </div>
+    <p class="note" id="copyNote" role="status"></p>
+  </section>
+
+  <section class="send" aria-labelledby="send-h">
+    <h2 id="send-h">ابعتلي بعد التجربة</h2>
+    <ol>
+      <li>الهياكل كانت ماشية مع الناس صح؟ ولا كانت بتتلخبط أو تختفي؟</li>
+      <li>كان فيه كام شخص في الفيديو فعلاً، والصفحة ادّت كام رقم؟</li>
+      <li>الشخص اللي كان بيتحرك أكتر واخد أعلى «متوسط حركة»؟</li>
+      <li>نوع الموبايل (ممكن تدوس «انسخ النتيجة» وتلزقها في الشات).</li>
+    </ol>
+  </section>
+
+  <footer>
+    <p>الموديل: <span class="ltr">MoveNet MultiPose Lightning</span> من Google (رخصة <span class="ltr">Apache-2.0</span>)، شغال بمكتبة <span class="ltr">TensorFlow.js</span> (رخصة <span class="ltr">Apache-2.0</span>). أقصى عدد 6 أشخاص.</p>
+    <p>دي معاينة على الموبايل بس. الموديل النهائي للحضانة هيتختار في M0 على اللابتوب، بعد ما نقارن الدقة والسرعة والرخص.</p>
+  </footer>
+  <video id="video" class="offscreen" playsinline muted preload="auto"></video>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  // ---- Settings (preview only; the real pipeline keeps these in config.yaml) ----
+  const MODEL_JSON = 'models/movenet-multipose.json';
+  const MODEL_WEIGHTS_B64 = 'models/movenet-multipose.weights.txt'; // weights as base64 text (artifacts do not serve .bin)
+  const IN = 256;               // model input is a fixed 256x256 int32 image
+  const PERSON_MIN = 0.2;       // min person score to keep a detection
+  const KP_MIN = 0.25;          // min keypoint score to use a joint
+  const CONFIRM_HITS = 3;       // detections needed before a track gets a number
+  const MAX_GAP_S = 1.0;        // a numbered track survives this long without a match
+  const TENTATIVE_GAP_S = 0.3;  // an unnumbered track is dropped faster
+  const MAX_STEP_S = 0.5;       // ignore movement across gaps longer than this
+  const MAX_SPEED = 6;          // body-heights/s; faster = keypoint glitch, ignored
+  const HIP_SMOOTH = 0.5;       // EMA weight for the newest hip position
+  const MAX_DISPLAY = 960;      // longest side of the drawn canvas, in px
+
+  const EDGES = [[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4]];
+  const COLORS = ['#F2542D','#1FB5AC','#F5B400','#9B6BD3','#5DBB4A','#EE4D8B','#3D8BFD','#C9783A'];
+
+  const $ = (id) => document.getElementById(id);
+  const video = $('video');
+  const canvas = $('canvas');
+  const ctx = canvas.getContext('2d');
+  const inCanvas = document.createElement('canvas');
+  inCanvas.width = IN; inCanvas.height = IN;
+  const inCtx = inCanvas.getContext('2d', { willReadFrequently: true });
+
+  let model = null, useAsync = false, modelReady = false;
+  let videoReady = false;
+  let state = 'idle';           // idle | running | paused | done | error
+  let gen = 0, busy = false, lastMediaT = -1;
+  let geo = null;
+  let T = null, S = null;
+  let recorder = null, recChunks = [], recBlob = null, recExt = 'webm';
+  let downloads = null, wakeLock = null, currentUrl = null, triedDataUrl = false, currentFile = null;
+  let lastTableDraw = 0;
+
+  // ---------- Model ----------
+  function setModelStatus(kind, text) {
+    const el = $('modelStatus');
+    el.dataset.kind = kind;
+    el.textContent = text;
+    updateButtons();
+  }
+
+  async function modelArtifacts() {
+    const [rj, rw] = await Promise.all([fetch(MODEL_JSON), fetch(MODEL_WEIGHTS_B64)]);
+    if (!rj.ok || !rw.ok) throw new Error('model files: HTTP ' + rj.status + '/' + rw.status);
+    const mj = await rj.json();
+    const bin = atob((await rw.text()).trim());
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const weightSpecs = [];
+    for (const group of mj.weightsManifest) weightSpecs.push(...group.weights);
+    return tf.io.fromMemory({
+      modelTopology: mj.modelTopology, format: mj.format, generatedBy: mj.generatedBy,
+      convertedBy: mj.convertedBy, signature: mj.signature, weightSpecs, weightData: bytes.buffer,
+    });
+  }
+
+  async function loadModel() {
+    if (typeof tf === 'undefined') {
+      setModelStatus('error', 'مكتبة التحليل ما اتحمّلتش. اتأكد إن النت شغال وافتح الصفحة تاني.');
+      return;
+    }
+    setModelStatus('loading', 'بيحمّل الموديل (حوالي 10 ميجا، أول مرة بس)…');
+    try {
+      try { await tf.setBackend('webgl'); } catch (e) { /* fall back below */ }
+      await tf.ready();
+      if (tf.getBackend() !== 'webgl') { await tf.setBackend('cpu'); await tf.ready(); }
+      model = await tf.loadGraphModel(await modelArtifacts());
+      const z = tf.zeros([1, IN, IN, 3], 'int32');
+      try {
+        const o = model.execute(z); await o.data(); o.dispose();
+      } catch (e) {
+        useAsync = true;
+        const o = await model.executeAsync(z); await o.data(); o.dispose();
+      }
+      z.dispose();
+      modelReady = true;
+      const where = tf.getBackend() === 'webgl' ? 'كارت الشاشة (WebGL)' : 'المعالج (هيبقى أبطأ)';
+      setModelStatus('ready', 'الموديل جاهز، وشغال على ' + where + '.');
+    } catch (e) {
+      console.error(e);
+      const msg = (e && e.message) ? String(e.message).slice(0, 140) : String(e);
+      setModelStatus('error', 'الموديل ما اشتغلش على الموبايل ده. ابعتلي الرسالة دي: ' + msg);
+    }
+  }
+
+  // ---------- Video input ----------
+  $('btnRecord').addEventListener('click', () => $('inRecord').click());
+  $('btnPick').addEventListener('click', () => $('inPick').click());
+  $('inRecord').addEventListener('change', (e) => onFile(e.target.files && e.target.files[0], e.target));
+  $('inPick').addEventListener('change', (e) => onFile(e.target.files && e.target.files[0], e.target));
+
+  function onFile(file, input) {
+    if (!file) return;
+    stopRun(false);
+    currentFile = file;
+    triedDataUrl = false;
+    videoReady = false;
+    if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
+    try { currentUrl = URL.createObjectURL(file); video.src = currentUrl; }
+    catch (e) { fallbackDataUrl(); }
+    video.load();
+    $('stageEmpty').textContent = 'بيفتح الفيديو…';
+    input.value = '';
+    updateButtons();
+  }
+
+  function fallbackDataUrl() {
+    if (triedDataUrl || !currentFile || currentFile.size > 200 * 1024 * 1024) { videoFailed(); return; }
+    triedDataUrl = true;
+    const r = new FileReader();
+    r.onload = () => { video.src = r.result; video.load(); };
+    r.onerror = videoFailed;
+    r.readAsDataURL(currentFile);
+  }
+
+  function videoFailed() {
+    videoReady = false;
+    $('canvas').hidden = true;
+    $('stageEmpty').hidden = false;
+    $('stageEmpty').textContent = 'الموبايل مش قادر يفتح الفيديو ده. جرّب تصوّر من زرار «صوّر فيديو دلوقتي» أو اختار فيديو تاني.';
+    updateButtons();
+  }
+
+  video.addEventListener('error', () => { if (!triedDataUrl) fallbackDataUrl(); else videoFailed(); });
+  video.addEventListener('loadedmetadata', () => {
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) { videoFailed(); return; }
+    const k = Math.min(1, MAX_DISPLAY / Math.max(w, h));
+    canvas.width = Math.round(w * k); canvas.height = Math.round(h * k);
+    $('stage').style.aspectRatio = w + ' / ' + h;
+    const s = IN / Math.max(w, h);
+    const nw = Math.round(w * s), nh = Math.round(h * s);
+    geo = { s, nw, nh, px: Math.floor((IN - nw) / 2), py: Math.floor((IN - nh) / 2) };
+  });
+  video.addEventListener('loadeddata', () => {
+    videoReady = true;
+    $('stageEmpty').hidden = true;
+    $('canvas').hidden = false;
+    try { ctx.drawImage(video, 0, 0, canvas.width, canvas.height); } catch (e) { /* first frame may not be ready */ }
+    resetAnalysis();
+    updateButtons();
+  });
+  video.addEventListener('ended', () => { if (state === 'running') finish(); });
+
+  // ---------- Controls ----------
+  $('btnStart').addEventListener('click', start);
+  $('btnPause').addEventListener('click', () => {
+    if (state === 'running') pause(); else if (state === 'paused') resume();
+  });
+  $('btnSpeed').addEventListener('click', () => {
+    const slow = video.playbackRate > 0.75;
+    video.playbackRate = slow ? 0.5 : 1;
+    $('btnSpeed').textContent = 'سرعة الفيديو: ' + (slow ? 'نص السرعة' : 'عادية');
+    $('btnSpeed').setAttribute('aria-pressed', String(slow));
+  });
+  $('btnSave').addEventListener('click', saveRecording);
+  $('btnCopy').addEventListener('click', copySummary);
+
+  function updateButtons() {
+    $('btnStart').disabled = !(modelReady && videoReady && state !== 'running' && state !== 'paused');
+    $('btnStart').textContent = state === 'done' ? 'حلّل تاني من الأول' : 'ابدأ التحليل';
+    $('btnPause').disabled = !(state === 'running' || state === 'paused');
+    $('btnPause').textContent = state === 'paused' ? 'كمّل' : 'إيقاف مؤقت';
+  }
+
+  function resetAnalysis() {
+    T = { tracks: [], nextId: 1, numbered: [] };
+    S = { frames: 0, firstT: null, lastT: 0, maxSimul: 0, wall: [], runMs: 0, runStart: 0 };
+    lastMediaT = -1;
+    recBlob = null; recChunks = [];
+    $('btnSave').hidden = true;
+    $('summary').hidden = true;
+    $('rFps').textContent = '–'; $('rNow').textContent = '–'; $('rIds').textContent = '–';
+    renderTable(true);
+  }
+
+  async function start() {
+    if (!modelReady || !videoReady) return;
+    resetAnalysis();
+    try { video.currentTime = 0; } catch (e) { /* ignore */ }
+    state = 'running';
+    S.runStart = performance.now();
+    startRecorder();
+    keepAwake();
+    updateButtons();
+    try { await video.play(); }
+    catch (e) {
+      state = 'error'; updateButtons();
+      $('stageNote').textContent = 'الفيديو ما اشتغلش. دوس «ابدأ التحليل» تاني.';
+      return;
+    }
+    gen++; schedule(gen);
+  }
+
+  function pause() {
+    state = 'paused';
+    video.pause();
+    S.runMs += performance.now() - S.runStart;
+    if (recorder && recorder.state === 'recording') { try { recorder.pause(); } catch (e) { /* ignore */ } }
+    updateButtons();
+  }
+
+  async function resume() {
+    state = 'running';
+    S.runStart = performance.now();
+    if (recorder && recorder.state === 'paused') { try { recorder.resume(); } catch (e) { /* ignore */ } }
+    updateButtons();
+    try { await video.play(); } catch (e) { pause(); return; }
+    gen++; schedule(gen);
+  }
+
+  function stopRun(keep) {
+    if (state === 'running' || state === 'paused') {
+      video.pause();
+      if (!keep && recorder && recorder.state !== 'inactive') { recorder.onstop = null; try { recorder.stop(); } catch (e) { /* ignore */ } }
+    }
+    state = 'idle';
+    gen++;
+    releaseAwake();
+    updateButtons();
+  }
+
+  // ---------- Frame loop ----------
+  function schedule(g) {
+    if (state !== 'running' || g !== gen) return;
+    if (video.requestVideoFrameCallback) {
+      video.requestVideoFrameCallback((now, meta) => onFrame(g, meta.mediaTime));
+    } else {
+      requestAnimationFrame(() => onFrame(g, video.currentTime));
+    }
+  }
+
+  async function onFrame(g, mediaT) {
+    if (state !== 'running' || g !== gen) return;
+    schedule(g);
+    if (busy) return;
+    busy = true;
+    try { await processFrame(typeof mediaT === 'number' ? mediaT : video.currentTime); }
+    catch (e) {
+      console.error(e);
+      $('stageNote').textContent = 'حصلت مشكلة أثناء التحليل: ' + String((e && e.message) || e).slice(0, 120);
+    }
+    busy = false;
+  }
+
+  async function processFrame(t) {
+    if (t === lastMediaT || !geo) return;
+    lastMediaT = t;
+    const dets = await detect();
+    if (S.firstT === null) S.firstT = t;
+    trackStep(dets, t);
+    const visible = T.tracks.filter((tr) => tr.id && tr.lastT === t);
+    S.maxSimul = Math.max(S.maxSimul, visible.length);
+    S.frames++;
+    S.lastT = t;
+    S.wall.push(performance.now());
+    if (S.wall.length > 15) S.wall.shift();
+    draw(visible);
+    updateReadouts(visible.length);
+    const now = performance.now();
+    if (now - lastTableDraw > 500) { lastTableDraw = now; renderTable(false); }
+  }
+
+  async function detect() {
+    const { s, nw, nh, px, py } = geo;
+    inCtx.fillStyle = '#000';
+    inCtx.fillRect(0, 0, IN, IN);
+    inCtx.drawImage(video, px, py, nw, nh);
+    const x = tf.tidy(() => tf.browser.fromPixels(inCanvas).expandDims(0));
+    let out;
+    try { out = useAsync ? await model.executeAsync(x) : model.execute(x); }
+    finally { x.dispose(); }
+    const d = await out.data();
+    out.dispose();
+    const people = [];
+    for (let i = 0; i < 6; i++) {
+      const b = i * 56;
+      const score = d[b + 55];
+      if (!(score >= PERSON_MIN)) continue;
+      const kps = [];
+      for (let k = 0; k < 17; k++) {
+        kps.push({ x: (d[b + k * 3 + 1] * IN - px) / s, y: (d[b + k * 3] * IN - py) / s, c: d[b + k * 3 + 2] });
+      }
+      const box = {
+        x1: (d[b + 52] * IN - px) / s, y1: (d[b + 51] * IN - py) / s,
+        x2: (d[b + 54] * IN - px) / s, y2: (d[b + 53] * IN - py) / s,
+      };
+      if (box.x2 - box.x1 < 2 || box.y2 - box.y1 < 2) continue;
+      people.push({ kps, box, score });
+    }
+    return people;
+  }
+
+  // ---------- Tracker (greedy IoU + predicted-centre distance) ----------
+  const center = (b) => ({ x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 });
+  const bh = (b) => Math.max(1, b.y2 - b.y1);
+  function iou(a, b) {
+    const ix = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+    const iy = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+    const inter = ix * iy;
+    const u = (a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter;
+    return u > 0 ? inter / u : 0;
+  }
+  function hipOf(kps) {
+    const l = kps[11], r = kps[12];
+    if (l.c >= KP_MIN && r.c >= KP_MIN) return { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 };
+    return null;
+  }
+
+  function trackStep(dets, t) {
+    const tracks = T.tracks;
+    const pairs = [];
+    for (let i = 0; i < tracks.length; i++) {
+      const tr = tracks[i];
+      const dt = Math.max(0, Math.min(MAX_GAP_S, t - tr.lastT));
+      const dx = tr.v.x * dt, dy = tr.v.y * dt;
+      const pb = { x1: tr.box.x1 + dx, y1: tr.box.y1 + dy, x2: tr.box.x2 + dx, y2: tr.box.y2 + dy };
+      const pc = center(pb);
+      for (let j = 0; j < dets.length; j++) {
+        const db = dets[j].box;
+        const ov = iou(pb, db);
+        const dc = center(db);
+        const dist = Math.hypot(dc.x - pc.x, dc.y - pc.y) / Math.max(bh(db), bh(tr.box));
+        if (ov < 0.1 && dist > 0.6) continue;
+        pairs.push({ i, j, sim: ov + Math.max(0, 0.6 - dist) * 0.5 + (tr.id ? 0.05 : 0) });
+      }
+    }
+    pairs.sort((a, b) => b.sim - a.sim);
+    const usedT = new Set(), usedD = new Set();
+    for (const p of pairs) {
+      if (usedT.has(p.i) || usedD.has(p.j)) continue;
+      usedT.add(p.i); usedD.add(p.j);
+      updateTrack(tracks[p.i], dets[p.j], t);
+    }
+    for (let j = 0; j < dets.length; j++) {
+      if (usedD.has(j)) continue;
+      const h = hipOf(dets[j].kps);
+      tracks.push({ id: 0, hits: 1, box: dets[j].box, v: { x: 0, y: 0 }, kps: dets[j].kps, lastT: t,
+        hip: h, hipT: h ? t : null, seenT: 0, moveSum: 0, moveT: 0, color: '#9AA5A1' });
+    }
+    T.tracks = tracks.filter((tr) => (t - tr.lastT) <= (tr.id ? MAX_GAP_S : TENTATIVE_GAP_S) && t >= tr.lastT);
+  }
+
+  function updateTrack(tr, det, t) {
+    const dt = t - tr.lastT;
+    const oc = center(tr.box), nc = center(det.box);
+    if (dt > 0 && dt <= MAX_STEP_S) {
+      tr.v.x = 0.6 * tr.v.x + 0.4 * (nc.x - oc.x) / dt;
+      tr.v.y = 0.6 * tr.v.y + 0.4 * (nc.y - oc.y) / dt;
+      if (tr.id) tr.seenT += dt;
+    }
+    const raw = hipOf(det.kps);
+    if (raw) {
+      const hip = tr.hip ? { x: tr.hip.x + HIP_SMOOTH * (raw.x - tr.hip.x), y: tr.hip.y + HIP_SMOOTH * (raw.y - tr.hip.y) } : raw;
+      if (tr.id && tr.hip && tr.hipT !== null) {
+        const hdt = t - tr.hipT;
+        if (hdt > 0 && hdt <= MAX_STEP_S) {
+          const sp = Math.hypot(hip.x - tr.hip.x, hip.y - tr.hip.y) / bh(det.box) / hdt;
+          if (sp < MAX_SPEED) { tr.moveSum += sp * hdt; tr.moveT += hdt; }
+        }
+      }
+      tr.hip = hip; tr.hipT = t;
+    }
+    tr.hits++;
+    tr.box = det.box; tr.kps = det.kps; tr.lastT = t;
+    if (!tr.id && tr.hits >= CONFIRM_HITS) {
+      tr.id = T.nextId++;
+      tr.color = COLORS[(tr.id - 1) % COLORS.length];
+      T.numbered.push(tr);
+    }
+  }
+
+  // ---------- Drawing ----------
+  function draw(visible) {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const k = canvas.width / video.videoWidth;
+    const lw = Math.max(2, canvas.width / 300);
+    ctx.lineCap = 'round';
+    ctx.direction = 'ltr';
+    for (const tr of visible) {
+      const p = tr.kps;
+      ctx.strokeStyle = tr.color; ctx.lineWidth = lw;
+      ctx.beginPath();
+      for (const [a, b] of EDGES) {
+        if (p[a].c < KP_MIN || p[b].c < KP_MIN) continue;
+        ctx.moveTo(p[a].x * k, p[a].y * k); ctx.lineTo(p[b].x * k, p[b].y * k);
+      }
+      ctx.stroke();
+      ctx.fillStyle = tr.color;
+      for (const q of p) {
+        if (q.c < KP_MIN) continue;
+        ctx.beginPath(); ctx.arc(q.x * k, q.y * k, lw * 1.1, 0, Math.PI * 2); ctx.fill();
+      }
+      const label = '#' + tr.id;
+      const fs = Math.max(14, Math.round(canvas.width / 40));
+      ctx.font = '600 ' + fs + 'px "IBM Plex Mono", ui-monospace, monospace';
+      const tw = ctx.measureText(label).width;
+      const cx = ((tr.box.x1 + tr.box.x2) / 2) * k;
+      const ty = Math.max(fs + 8, tr.box.y1 * k - 6);
+      ctx.fillStyle = tr.color;
+      ctx.fillRect(cx - tw / 2 - 6, ty - fs - 4, tw + 12, fs + 8);
+      ctx.fillStyle = '#0A110F';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(label, cx - tw / 2, ty - 2);
+    }
+  }
+
+  function fpsNow() {
+    const w = S.wall;
+    if (w.length < 2) return null;
+    const span = (w[w.length - 1] - w[0]) / 1000;
+    return span > 0 ? (w.length - 1) / span : null;
+  }
+
+  function updateReadouts(nowCount) {
+    const f = fpsNow();
+    $('rFps').textContent = f ? f.toFixed(1) : '–';
+    $('rNow').textContent = String(nowCount);
+    $('rIds').textContent = String(T.nextId - 1);
+  }
+
+  function analysedSeconds() { return S.firstT === null ? 0 : Math.max(0, S.lastT - S.firstT); }
+
+  function rows() {
+    const dur = analysedSeconds();
+    return T.numbered.map((tr) => ({
+      id: tr.id, color: tr.color, seen: tr.seenT,
+      pct: dur > 0 ? Math.min(100, (tr.seenT / dur) * 100) : 0,
+      move: tr.moveT >= 1 ? tr.moveSum / tr.moveT : null,
+    })).filter((r) => r.seen >= 0.5);
+  }
+
+  function renderTable(empty) {
+    const body = $('peopleBody');
+    body.textContent = '';
+    const list = empty ? [] : rows();
+    if (!list.length) {
+      const tr = document.createElement('tr'); tr.className = 'empty-row';
+      const td = document.createElement('td'); td.colSpan = 5;
+      td.textContent = empty ? 'لسه مفيش تحليل. الجدول هيتملا وانت بتحلل.' : 'لسه مفيش حد اتتبع لمدة كافية.';
+      tr.appendChild(td); body.appendChild(tr);
+      return;
+    }
+    const maxMove = Math.max(0.0001, ...list.map((r) => r.move || 0));
+    for (const r of list) {
+      const tr = document.createElement('tr');
+      const c1 = document.createElement('td');
+      const chip = document.createElement('span'); chip.className = 'chip';
+      const sw = document.createElement('i'); sw.style.background = r.color;
+      const nm = document.createElement('span'); nm.textContent = '#' + r.id;
+      chip.append(sw, nm); c1.appendChild(chip);
+      const c2 = document.createElement('td'); c2.className = 'num'; c2.textContent = r.seen.toFixed(0) + ' ث';
+      const c3 = document.createElement('td'); c3.className = 'num'; c3.textContent = r.pct.toFixed(0) + '%';
+      const c4 = document.createElement('td'); c4.className = 'num'; c4.textContent = r.move === null ? '–' : r.move.toFixed(2);
+      const c5 = document.createElement('td');
+      const bar = document.createElement('div'); bar.className = 'bar';
+      const fill = document.createElement('span'); fill.style.width = (r.move === null ? 0 : (r.move / maxMove) * 100) + '%';
+      bar.appendChild(fill); c5.appendChild(bar);
+      tr.append(c1, c2, c3, c4, c5);
+      body.appendChild(tr);
+    }
+  }
+
+  // ---------- Finish & summary ----------
+  function finish() {
+    state = 'done';
+    S.runMs += performance.now() - S.runStart;
+    gen++;
+    releaseAwake();
+    stopRecorder();
+    renderTable(false);
+    const dur = analysedSeconds();
+    const avgFps = S.runMs > 0 ? S.frames / (S.runMs / 1000) : 0;
+    $('sDur').textContent = dur.toFixed(0) + ' ثانية';
+    $('sFps').textContent = avgFps.toFixed(1) + ' إطار/ث (' + (tf.getBackend() === 'webgl' ? 'WebGL' : 'CPU') + ')';
+    $('sMax').textContent = String(S.maxSimul);
+    $('sIds').textContent = String(T.nextId - 1);
+    $('summary').hidden = false;
+    $('copyNote').textContent = '';
+    updateButtons();
+  }
+
+  function summaryText() {
+    const dur = analysedSeconds();
+    const avgFps = S.runMs > 0 ? S.frames / (S.runMs / 1000) : 0;
+    const lines = [
+      'نتيجة معاينة تتبع الحركة',
+      'مدة الفيديو اللي اتحللت: ' + dur.toFixed(0) + ' ث',
+      'متوسط سرعة التحليل: ' + avgFps.toFixed(1) + ' إطار/ث (' + (tf.getBackend() === 'webgl' ? 'WebGL' : 'CPU') + ')',
+      'سرعة الفيديو: ' + (video.playbackRate < 0.75 ? 'نص السرعة' : 'عادية'),
+      'مقاس الفيديو: ' + video.videoWidth + 'x' + video.videoHeight,
+      'أكبر عدد ظهر مع بعض: ' + S.maxSimul,
+      'عدد الأرقام اللي اتدّت: ' + (T.nextId - 1),
+    ];
+    for (const r of rows()) {
+      lines.push('#' + r.id + ': ظاهر ' + r.seen.toFixed(0) + ' ث (' + r.pct.toFixed(0) + '%)، متوسط الحركة ' + (r.move === null ? '–' : r.move.toFixed(2)));
+    }
+    lines.push('المتصفح: ' + navigator.userAgent);
+    return lines.join('\n');
+  }
+
+  async function copySummary() {
+    const text = summaryText();
+    try {
+      await navigator.clipboard.writeText(text);
+      $('copyNote').textContent = 'اتنسخت. الزقها في الشات.';
+    } catch (e) {
+      const pre = document.createElement('textarea');
+      pre.value = text; pre.setAttribute('readonly', ''); pre.rows = 8; pre.style.width = '100%';
+      pre.id = 'copyFallback';
+      const old = $('copyFallback'); if (old) old.remove();
+      $('summary').appendChild(pre);
+      pre.focus(); pre.select();
+      $('copyNote').textContent = 'النسخ التلقائي مش متاح هنا. حدّد النص اللي تحت وانسخه.';
+    }
+  }
+
+  // ---------- Optional: save the annotated video ----------
+  function pickMime() {
+    if (!window.MediaRecorder || !canvas.captureStream) return null;
+    const c = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    for (const m of c) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) { /* ignore */ } }
+    return null;
+  }
+
+  function startRecorder() {
+    recorder = null; recChunks = []; recBlob = null;
+    if (!downloads) return;
+    const mime = pickMime();
+    if (!mime) return;
+    try {
+      const stream = canvas.captureStream(30);
+      recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000 });
+      recExt = mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+      recorder.onstop = () => {
+        if (recChunks.length) { recBlob = new Blob(recChunks, { type: mime }); $('btnSave').hidden = false; }
+      };
+      recorder.start(1000);
+    } catch (e) { recorder = null; }
+  }
+
+  function stopRecorder() {
+    if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (e) { /* ignore */ } }
+  }
+
+  async function saveRecording() {
+    if (!recBlob || !downloads) return;
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const name = 'pose-preview-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.' + recExt;
+    try {
+      await downloads.save({ filename: name, data: recBlob });
+      $('stageNote').textContent = 'الفيديو اتحفظ.';
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'declined') $('stageNote').textContent = 'ما اتحفظش.';
+      else if (code === 'rate_limited') $('stageNote').textContent = 'استنى ثانية وجرّب تاني.';
+      else { $('btnSave').hidden = true; $('stageNote').textContent = 'الحفظ مش متاح هنا.'; }
+    }
+  }
+
+  // ---------- Screen wake lock (optional) ----------
+  async function keepAwake() {
+    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
+  }
+  function releaseAwake() {
+    try { if (wakeLock) wakeLock.release(); } catch (e) { /* ignore */ }
+    wakeLock = null;
+  }
+
+  // ---------- Boot ----------
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then((d) => { downloads = d; }).catch(() => { downloads = null; });
+  }
+  loadModel();
+})();
+</script>
